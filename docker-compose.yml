@@ -1,0 +1,13 @@
+
+version: '3'
+
+services:
+  elgas-server:
+    # image:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8649:8649"
+
+
+
