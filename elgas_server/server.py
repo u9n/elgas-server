@@ -138,8 +138,8 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
         oldest_timestamp = datetime.datetime.fromisoformat(readout_settings["oldest_timestamp"])
         meter_local_oldest_timestamp = to_meter_standard_time(oldest_timestamp, meter_timezone)
 
-        if readout_settings["newest_timestamp"]:
-            newest_timestamp = datetime.datetime.fromisoformat(readout_settings["newest_timestamp"])
+        if readout_settings["read_until_timestamp"]:
+            newest_timestamp = datetime.datetime.fromisoformat(readout_settings["read_until_timestamp"])
         else:
             newest_timestamp = now()
         meter_local_newest_timestamp = to_meter_standard_time(newest_timestamp, meter_timezone)
