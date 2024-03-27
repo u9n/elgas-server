@@ -152,7 +152,7 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
                                            archive=Archive(readout_settings["archive"])
                                            )
         LOG.info("Finished reading archive", client=elgas_client, total_amount_of_data=len(readout_result))
-        LOG.info("Total data", data=readout_result)
+        LOG.info("Total data", data=readout_result.hex())
 
         # TODO: add sentry
 
