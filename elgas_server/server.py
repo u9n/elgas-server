@@ -152,7 +152,7 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
                                            archive=Archive(readout_settings["archive"])
                                            )
         LOG.info("Finished reading archive", client=elgas_client, total_amount_of_data=len(readout_result))
-
+        LOG.info("Total data", data=readout_result)
 
         # TODO: add sentry
 
@@ -234,7 +234,7 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
                     "readout. Stopping readout")
                 end_of_data = True
 
-            return total_data
+        return total_data
 
     def get_readout_settings(self, serial_number: int) -> Dict:
         url = f"{settings.UTILITARIAN_BASE_URL}/v1/metering/edge/elgas/readout-settings/{serial_number}"
