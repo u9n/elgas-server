@@ -60,7 +60,7 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
     def create_elgas_client(self, password_id: int, password: str, encryption_key_id: int,
                             encryption_key: str, ) -> ElgasClient:
         transport = BlockingTcpServerTransport(host=self.client_address[0], port=self.client_address[1], timeout=30)
-
+        transport.tcp_socket = self.request
         client = ElgasClient(
             transport=transport,
             password=password,
@@ -152,6 +152,9 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
                                            archive=Archive(readout_settings["archive"])
                                            )
         LOG.info("Finished reading archive", client=elgas_client, total_amount_of_data=len(readout_result))
+
+
+        # TODO: add sentry
 
     def read_archive(self, client: ElgasClient, archive: Archive, oldest_timestamp: datetime,
                      newest_timestamp: datetime, read_amount: int, record_length: int):
