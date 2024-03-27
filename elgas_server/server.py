@@ -51,7 +51,7 @@ def to_meter_standard_time(dt: datetime, meter_tz: datetime.tzinfo) -> datetime:
     """
     meter_time = dt.astimezone(meter_tz)
     standard_time = meter_time - meter_time.dst()
-    standard_time.replace(tzinfo=None)
+    standard_time = standard_time.replace(tzinfo=None)
     return standard_time
 
 
