@@ -109,7 +109,6 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
         return client
 
     def handle(self):
-        test = 1 / 0
         host, port = self.client_address
         structlog.contextvars.bind_contextvars(peer_address=self.client_address)
         LOG.info("Handling TCP stream")
@@ -347,7 +346,6 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
 @click.option("--port", type=int, default=None, help="Port to serve the application")
 def start_server(host, port):
     """ """
-
 
     request_handler = ElgasCallToDispatchingHandler
     if host is None:
