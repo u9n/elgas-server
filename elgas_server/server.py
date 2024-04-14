@@ -1,3 +1,4 @@
+import base64
 import datetime
 import socket
 from socketserver import ThreadingTCPServer, BaseRequestHandler
@@ -11,9 +12,15 @@ from elgas import utils, frames, constants
 from elgas.client import ElgasClient
 from elgas.security import EncryptionKeyId
 from elgas.transport import BlockingTcpTransport
-from elgas.application import CallRequest, ReadArchiveByTimeResponse, ReadArchiveResponse, Archive
+from elgas.application import (
+    CallRequest,
+    ReadArchiveByTimeResponse,
+    ReadArchiveResponse,
+    Archive,
+)
 import attr
 import click
+import threading
 
 from elgas.utils import bytes_to_datetime
 
@@ -55,11 +62,41 @@ def to_meter_standard_time(dt: datetime, meter_tz: datetime.tzinfo) -> datetime:
     return standard_time
 
 
-class ElgasCallToDispatchingHandler(BaseRequestHandler):
+def report_readout_messages(serial_number: int, archive: Archive, total_data: bytes):
+    """
+    This is to be started up in a thread to report the readout back to ESMP
+    so that the thread handling the connection can close as soon as possible.
+    We are using battery when the connection stays open, and we want to save as much battery as possible.
+    """
+    b64_data = base64.b64encode(total_data).decode()
+    data = {"archive": int(archive), "data": b64_data}
+    url = f"{settings.UTILITARIAN_BASE_URL}/v1/metering/edge/elgas/readout-parser/{serial_number}"
+    headers = {"Authorization": f"Token {settings.UTILITARIAN_API_KEY}"}
+    LOG.info("Sending readout result to ESMP", url=url)
+    response = httpx.post(url=url, headers=headers, json=data)
 
-    def create_elgas_client(self, password_id: int, password: str, encryption_key_id: int,
-                            encryption_key: str, ) -> ElgasClient:
-        transport = BlockingTcpServerTransport(host=self.client_address[0], port=self.client_address[1], timeout=30)
+    if response.status_code == 202:
+        LOG.info("ESMP received readout result")
+    else:
+        LOG.info(
+            "Failed to provide ESMP with readout result",
+            http_status_code=response.status_code,
+            response=response.content,
+        )
+        raise ESMPError("Not able to send readout result")
+
+
+class ElgasCallToDispatchingHandler(BaseRequestHandler):
+    def create_elgas_client(
+        self,
+        password_id: int,
+        password: str,
+        encryption_key_id: int,
+        encryption_key: str,
+    ) -> ElgasClient:
+        transport = BlockingTcpServerTransport(
+            host=self.client_address[0], port=self.client_address[1], timeout=30
+        )
         transport.tcp_socket = self.request
         client = ElgasClient(
             transport=transport,
@@ -72,6 +109,7 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
         return client
 
     def handle(self):
+        test = 1 / 0
         host, port = self.client_address
         structlog.contextvars.bind_contextvars(peer_address=self.client_address)
         LOG.info("Handling TCP stream")
@@ -106,8 +144,10 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
             serial_number=call_request.serial_number,
             call_request=call_request,
         )
-        structlog.contextvars.bind_contextvars(device_serial_number=call_request.serial_number,
-                                               station_id=call_request.station_id)
+        structlog.contextvars.bind_contextvars(
+            device_serial_number=call_request.serial_number,
+            station_id=call_request.station_id,
+        )
 
         # Respond to device with an empty response.
         response = frames.Response(
@@ -127,38 +167,84 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
 
         record_length = readout_settings["archive_record_length"]
 
-        elgas_client = self.create_elgas_client(password_id=readout_settings["password_id"],
-                                                password=readout_settings["password"],
-                                                encryption_key_id=readout_settings["encryption_key_id"],
-                                                encryption_key=readout_settings["encryption_key"])
+        elgas_client = self.create_elgas_client(
+            password_id=readout_settings["password_id"],
+            password=readout_settings["password"],
+            encryption_key_id=readout_settings["encryption_key_id"],
+            encryption_key=readout_settings["encryption_key"],
+        )
 
         LOG.info("Created ELGAS Client", client=elgas_client)
 
         elgas_client.connect()
-        oldest_timestamp = datetime.datetime.fromisoformat(readout_settings["oldest_timestamp"])
-        meter_local_oldest_timestamp = to_meter_standard_time(oldest_timestamp, meter_timezone)
+        oldest_timestamp = datetime.datetime.fromisoformat(
+            readout_settings["oldest_timestamp"]
+        )
+        meter_local_oldest_timestamp = to_meter_standard_time(
+            oldest_timestamp, meter_timezone
+        )
 
         if readout_settings["read_until_timestamp"]:
-            newest_timestamp = datetime.datetime.fromisoformat(readout_settings["read_until_timestamp"])
+            newest_timestamp = datetime.datetime.fromisoformat(
+                readout_settings["read_until_timestamp"]
+            )
         else:
             newest_timestamp = now()
-        meter_local_newest_timestamp = to_meter_standard_time(newest_timestamp, meter_timezone)
+        meter_local_newest_timestamp = to_meter_standard_time(
+            newest_timestamp, meter_timezone
+        )
 
-        readout_result = self.read_archive(client=elgas_client,
-                                           oldest_timestamp=meter_local_oldest_timestamp,
-                                           newest_timestamp=meter_local_newest_timestamp,
-                                           read_amount=readout_settings["amount_to_read"],
-                                           record_length=record_length,
-                                           archive=Archive(readout_settings["archive"])
-                                           )
-        LOG.info("Finished reading archive", client=elgas_client, total_amount_of_data=len(readout_result))
-        LOG.info("Total data", data=readout_result.hex())
+        readout_result = self.read_archive(
+            client=elgas_client,
+            oldest_timestamp=meter_local_oldest_timestamp,
+            newest_timestamp=meter_local_newest_timestamp,
+            read_amount=readout_settings["amount_to_read"],
+            record_length=record_length,
+            archive=Archive(readout_settings["archive"]),
+        )
+        LOG.info(
+            "Finished reading archive",
+            client=elgas_client,
+            total_amount_of_data=len(readout_result),
+        )
+        LOG.debug("Total data", data=readout_result.hex())
+
+        # Sending data to ESMP in separate thread.
+        post_thread = threading.Thread(
+            target=report_readout_messages,
+            kwargs={
+                "serial_number": call_request.serial_number,
+                "archive": Archive(readout_settings["archive"]),
+                "total_data": readout_result,
+            },
+        )
+        post_thread.start()
+
+        # Send write time with cryout = True
+
+        server_time_as_device_time = (
+            now().astimezone(meter_timezone).replace(tzinfo=None)
+        )
+        LOG.info(
+            "Syncing time with CRYOUT ack to end session",
+            device_time=server_time_as_device_time,
+        )
+        elgas_client.write_time(device_time=server_time_as_device_time, cryout=True)
+
+        self.request.shutdown(socket.SHUT_RDWR)
+        self.request.close()
 
         # TODO: add sentry
 
-    def read_archive(self, client: ElgasClient, archive: Archive, oldest_timestamp: datetime,
-                     newest_timestamp: datetime, read_amount: int, record_length: int):
-
+    def read_archive(
+        self,
+        client: ElgasClient,
+        archive: Archive,
+        oldest_timestamp: datetime,
+        newest_timestamp: datetime,
+        read_amount: int,
+        record_length: int,
+    ):
         LOG.info(
             "Reading archive",
             oldest_timestamp=oldest_timestamp,
@@ -205,7 +291,7 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
 
             records = list()
             for _ in range(0, int(number_of_records)):
-                records.append(received_data[: record_length])
+                records.append(received_data[:record_length])
                 data = received_data[record_length:]
 
             timestamps = list()
@@ -218,20 +304,23 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
                 "Received archive data",
                 archive=archive,
                 data_length=len(result.data),
-                record_amount=number_of_records
+                record_amount=number_of_records,
             )
 
             read_from_record = result.oldest_record_id + read_amount
 
             if number_of_records < read_amount:
                 # If we read fewer records than we requested we are at the end of the data
-                LOG.info("Number of records is lower than requested. End if data reached, Stopping readout.")
+                LOG.info(
+                    "Number of records is lower than requested. End if data reached, Stopping readout."
+                )
                 end_of_data = True
             if any([newest_timestamp <= timestamp for timestamp in timestamps]):
                 # We have read until the required timestamp
                 LOG.info(
                     "Timestamp larger or equal to newest timestamp requested found in archive "
-                    "readout. Stopping readout")
+                    "readout. Stopping readout"
+                )
                 end_of_data = True
 
         return total_data
@@ -245,10 +334,12 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
             LOG.info("Successfully retrieved readout settings from ESMP")
             return response.json()
         else:
-            LOG.info("Failed to retrieve readout settings", http_status_code=response.status_code,
-                     response=response.content)
+            LOG.info(
+                "Failed to retrieve readout settings",
+                http_status_code=response.status_code,
+                response=response.content,
+            )
             raise ESMPError("Not able to fetch readout settings")
-
 
 
 @click.command()
@@ -256,6 +347,7 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
 @click.option("--port", type=int, default=None, help="Port to serve the application")
 def start_server(host, port):
     """ """
+
 
     request_handler = ElgasCallToDispatchingHandler
     if host is None:
@@ -268,7 +360,12 @@ def start_server(host, port):
     else:
         serve_port = port
     with ThreadingTCPServer((serve_host, serve_port), request_handler) as server:
-        LOG.info("Starting ELGAS server", host=serve_host, port=serve_port, request_handler=request_handler.__name__)
+        LOG.info(
+            "Starting ELGAS server",
+            host=serve_host,
+            port=serve_port,
+            request_handler=request_handler.__name__,
+        )
         server.serve_forever()
 
 
