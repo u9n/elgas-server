@@ -73,7 +73,7 @@ def report_readout_messages(serial_number: int, archive: Archive, total_data: by
     url = f"{settings.UTILITARIAN_BASE_URL}/v1/metering/edge/elgas/readout-parser/{serial_number}"
     headers = {"Authorization": f"Token {settings.UTILITARIAN_API_KEY}"}
     LOG.info("Sending readout result to ESMP", url=url)
-    response = httpx.post(url=url, headers=headers, json=data)
+    response = httpx.post(url=url, headers=headers, json=data, timeout=settings.HTTP_TIMEOUT)
 
     if response.status_code == 202:
         LOG.info("ESMP received readout result")
@@ -328,7 +328,7 @@ class ElgasCallToDispatchingHandler(BaseRequestHandler):
         url = f"{settings.UTILITARIAN_BASE_URL}/v1/metering/edge/elgas/readout-settings/{serial_number}"
         headers = {"Authorization": f"Token {settings.UTILITARIAN_API_KEY}"}
         LOG.info("Requesting readout settings from ESMP", url=url)
-        response = httpx.get(url, headers=headers)
+        response = httpx.get(url, headers=headers, timeout=settings.HTTP_TIMEOUT)
         if response.status_code == 200:
             LOG.info("Successfully retrieved readout settings from ESMP")
             return response.json()
