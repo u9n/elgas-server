@@ -21,6 +21,12 @@ and this project adheres to [Calendar Versioning](https://calver.org/)
 
 ### Security
 
+## [24.1.2] - 2025-05-10
+
+## Fixed
+
+* Line in previous version was removed by mistake. 
+
 ## [24.1.1] - 2024-05-10
 
 ### Fixed
