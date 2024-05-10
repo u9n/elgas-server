@@ -71,7 +71,7 @@ def report_readout_messages(serial_number: int, archive: Archive, total_data: by
     b64_data = base64.b64encode(total_data).decode()
     data = {"archive": int(archive), "data": b64_data}
     url = f"{settings.UTILITARIAN_BASE_URL}/v1/metering/edge/elgas/readout-parser/{serial_number}"
-
+    headers = {"Authorization": f"Token {settings.UTILITARIAN_API_KEY}"}
     LOG.info("Sending readout result to ESMP", url=url)
     response = httpx.post(
         url=url, headers=headers, json=data, timeout=settings.HTTP_TIMEOUT
