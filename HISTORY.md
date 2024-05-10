@@ -21,6 +21,12 @@ and this project adheres to [Calendar Versioning](https://calver.org/)
 
 ### Security
 
+## [24.1.1] - 2024-05-10
+
+### Fixed
+
+* Increased HTTP timeout and added setting.
+
 ## [24.1.0] - 2024-04-15
 
 Initial release
